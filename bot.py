@@ -40,8 +40,8 @@ for status in statuses:
     # Strip all HTML tags from content
     content = re.sub('<[^<]+?>', '', status['content'])
 
-    # Fetch the toot ID
-    toot_id = str(status['id'])
+    # Fetch the toot URL
+    url = "{}".format(status['url'][8:])
 
     # Take first two tags of post to add to the post
     tag = ""
@@ -50,13 +50,13 @@ for status in statuses:
         tag += " #{}".format(new_tag)
 
     # Build the tweet
-    if len(content) + len(str(toot_id)) + 17 <= 140:
-        tweet = "{content} [Mirrored Toot {id}]".format(content=content, id=toot_id)
+    if len(content) + len(url) <= 140:
+        tweet = "{content} {url}".format(content=content, url=url)
     else:
-        tweet = content[:140 - len(tag) - len(str(toot_id)) - 17]
-        tweet += "{tag} [Mirrored Toot {id}]".format(tag=tag, id=toot_id)
+        tweet = content[:140 - len(tag) - len(url) - 1]
+        tweet += "{tag} {url}".format(tag=tag, url=url)
 
-    latest_toots.append((toot_id, tweet))
+    latest_toots.append((status['id'], tweet))
 
 
 twitter = Twitter.Api(
@@ -70,16 +70,21 @@ twitter_user = twitter.VerifyCredentials()
 twitter_id = twitter_user.id
 twitter_statuses = twitter.GetUserTimeline(user_id=twitter_id)
 
-latest_tweet = twitter_statuses[0].text
-latest_mirrored_toot_id = None
-m = re.search('^.* \[Mirrored Toot (\d*)\]$', latest_tweet)
-if m:
-    latest_mirrored_toot_id = m.group(1)
+latest_tweeted_toot = 0
+mstdn_url = mastodon_config['user_base_url']
+for url in twitter_statuses[0].urls:
+    expanded = url.expanded_url
+
+    prefix_len = 8  # https://
+    if mstdn_url in expanded:
+        if expanded.startswith("http://"):
+            prefix_len = 7
+        latest_tweeted_toot = int(expanded[prefix_len + len(mstdn_url):])
+
 
 not_mirrored = []
 for toot_id, toot in latest_toots:
-    print(toot_id, latest_mirrored_toot_id)
-    if toot_id == latest_mirrored_toot_id:
+    if toot_id == latest_tweeted_toot:
         print("Found anchor at toot {}.".format(toot_id))
         break
     else:
