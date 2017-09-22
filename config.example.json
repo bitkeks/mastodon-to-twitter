@@ -1,0 +1,16 @@
+{
+    "extra_tags": 1,
+    "mastodon": {
+        "api_base_url": "https://mstdn.io",
+        "user_base_url": "mstdn.io/@bitkeks/",
+        "client_key": "",
+        "client_secret": "",
+        "access_token": ""
+    },
+    "twitter": {
+        "consumer_key": "",
+        "consumer_secret": "",
+        "access_token": "",
+        "access_token_secret": ""
+    }
+}
