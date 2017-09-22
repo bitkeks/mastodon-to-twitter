@@ -6,22 +6,20 @@ import os
 import json
 import re
 import twitter as Twitter
+from collections import namedtuple
 
-EXTRA_TAGS = 2
-mastodon_config = None
-twitter_config = None
 
+config = None
 with open('config.json', 'r') as fh:
-    config = json.loads(fh.read())
-    mastodon_config = config['mastodon']
-    twitter_config = config['twitter']
-    EXTRA_TAGS = config["extra_tags"]
+    config = json.loads(fh.read(),
+        object_hook=lambda d: namedtuple('config', d.keys())(*d.values()))
+
 
 mastodon = Mastodon(
-    client_id = mastodon_config['client_key'],
-    client_secret = mastodon_config['client_secret'],
-    access_token = mastodon_config['access_token'],
-    api_base_url = mastodon_config['api_base_url']
+    client_id = config.mastodon.client_key,
+    client_secret = config.mastodon.client_secret,
+    access_token = config.mastodon.access_token,
+    api_base_url = config.mastodon.api_base_url
 )
 
 creds = mastodon.account_verify_credentials()
@@ -45,7 +43,7 @@ for status in statuses:
 
     # Take first two tags of post to add to the post
     tag = ""
-    for item in status['tags'][:EXTRA_TAGS]:
+    for item in status['tags'][:2]:
         new_tag = item['name']
         tag += " #{}".format(new_tag)
 
@@ -60,10 +58,10 @@ for status in statuses:
 
 
 twitter = Twitter.Api(
-    consumer_key=twitter_config['consumer_key'],
-    consumer_secret=twitter_config['consumer_secret'],
-    access_token_key=twitter_config['access_token'],
-    access_token_secret=twitter_config['access_token_secret']
+    consumer_key = config.twitter.consumer_key,
+    consumer_secret = config.twitter.consumer_secret,
+    access_token_key = config.twitter.access_token,
+    access_token_secret = config.twitter.access_token_secret
 )
 
 twitter_user = twitter.VerifyCredentials()
@@ -71,7 +69,7 @@ twitter_id = twitter_user.id
 twitter_statuses = twitter.GetUserTimeline(user_id=twitter_id)
 
 latest_tweeted_toot = 0
-mstdn_url = mastodon_config['user_base_url']
+mstdn_url = config.mastodon.user_base_url
 for url in twitter_statuses[0].urls:
     expanded = url.expanded_url
 
