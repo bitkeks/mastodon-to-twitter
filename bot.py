@@ -23,7 +23,6 @@ import html
 import json
 import re
 from collections import namedtuple
-from pprint import pprint
 from time import sleep
 
 from mastodon import Mastodon
@@ -67,6 +66,18 @@ while 1:
                 toot['reblog']):                    # Skip reblogs/boosts
             continue
 
+        content = toot['content']
+
+        # Filter out all URLs in the Toot since they break the Twitter char
+        # limit unpredictably
+        collected_external_links = []
+        m = re.finditer('href="(https?\:\/\/[^"]*)"', content)
+        for match in m:
+            link = match.group(1)
+            if "/tags/" in link:
+                continue
+            collected_external_links.append(link)
+
         # Strip all HTML tags from content
         content = re.sub('<[^<]+?>', '', toot['content'])
 
@@ -75,6 +86,8 @@ while 1:
         # "Hi, I&apos;m a bot". Unescaping this text reconstructs the
         # original string "I'm"
         content = html.unescape(content)
+        for link in collected_external_links:
+            content = content.replace(link, "")
 
         # Fetch the toot URL
         url = "{}".format(toot['url'][8:])
@@ -144,7 +157,12 @@ while 1:
 
     # Post actual tweets
     for tweet in reversed(not_mirrored):
-        twitter.PostUpdate(tweet)
+        try:
+            twitter.PostUpdate(tweet)
+        except Twitter.error.TwitterError as ex:
+            print("Error posting tweet: '{tweet}' (length {length}). {error}"\
+                .format(tweet=tweet, length=len(tweet), error=ex))
+            exit(1)
         print("Tweeting: {}".format(tweet))
 
     # Sleep and show next update timer
