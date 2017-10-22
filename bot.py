@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
 
+"""
+Mastodon 2.0 to Twitter Mirrorbot
+Copyright 2017 by Dominik Pataky <dom@netdecorator.org>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""
+
 import os
 import html
 import json
@@ -16,7 +34,7 @@ config = None
 with open('config.json', 'r') as fh:
     config = json.loads(fh.read(),
         object_hook=lambda d: namedtuple('config', d.keys())(*d.values()))
-
+TWITTER_CHARS = 140
 
 mastodon = Mastodon(
     client_id = config.mastodon.client_key,
@@ -44,45 +62,61 @@ while 1:
 
     latest_toots = []
     for toot in toots:
-        if toot['visibility'] != 'public' or \
-                len(toot['mentions']) > 0 or \
-                toot['reblog']:
-            # Only mirror my own public statements
+        if (toot['visibility'] != 'public' or       # Skip non-public Toots
+                len(toot['mentions']) > 0 or        # Skip replies
+                toot['reblog']):                    # Skip reblogs/boosts
             continue
 
         # Strip all HTML tags from content
         content = re.sub('<[^<]+?>', '', toot['content'])
 
+        # Unescape HTML entities in content
+        # This means, that e.g. a Toot "Hi, I'm a bot" is escaped as
+        # "Hi, I&apos;m a bot". Unescaping this text reconstructs the
+        # original string "I'm"
+        content = html.unescape(content)
+
         # Fetch the toot URL
         url = "{}".format(toot['url'][8:])
 
-        # Take first two tags of post to add to the post
+        # Take first x tags of post to add to the post
+        # Uses tags_to_append form the config to count how many tags to use
+        toot_tags = reversed(toot['tags'])  # Tags are sorted, but in reverse
         tag = ""
-        for item in toot['tags'][:2]:
+        for idx, item in enumerate(toot_tags):
             new_tag = item['name']
             tag += " #{}".format(new_tag)
+            if idx+1 == config.tags_to_append:
+                break
 
         # Build the tweet
-        if len(content) + len(url) <= 140:
+        if len(content) + len(url) <= TWITTER_CHARS:
+            # Content + URL are fitting in one Tweet
             tweet = "{content} {url}".format(content=content, url=url)
         else:
-            tweet = content[:140 - len(tag) - len(url) - 3]
+            # Calculate snipped of content plus all other text parts
+            tweet = content[:TWITTER_CHARS - len(tag) - len(url) - 3]
+            if tweet.endswith(" "):
+                # Remove spaces between last word and "…"
+                tweet = tweet.strip()
             tweet += "… {tag} {url}".format(tag=tag, url=url)
 
         latest_toots.append((toot['id'], tweet))
 
-
     tweets = twitter.GetUserTimeline(user_id=twitter_id)
 
-    latest_tweeted_toot = 0
-    mstdn_url = config.mastodon.user_base_url
     latest_tweeted_toot = None
+    mstdn_url = config.mastodon.user_base_url
+
+    # Iterate over the latest Tweets to find the latest tweeted Toot
+    # Cannot be the latest only, since we want to skip e.g. Retweets
     for tweet in tweets:
         for url in tweet.urls:
             expanded = url.expanded_url
 
             prefix_len = 8  # https://
             if mstdn_url in expanded:
+                # Mastodon URL found in Tweet
                 if expanded.startswith("http://"):
                     prefix_len = 7
 
@@ -90,8 +124,8 @@ while 1:
                 latest_tweeted_toot = expanded[prefix_len + len(mstdn_url):]
 
         if latest_tweeted_toot:
+            # Latest tweeted Toot was found
             break
-
 
     not_mirrored = []
     for toot_id, toot in latest_toots:
@@ -101,15 +135,21 @@ while 1:
         else:
             not_mirrored.append(toot)
 
+    # Check if all public Toots are going to be mirrored
     if len(latest_toots) == len(not_mirrored):
         print("Did not find a toot-tweet-anchor.")
     else:
+        # Only a part of the latest public Toots is going to be Tweeted
         print("Going to tweet {} toots.".format(len(not_mirrored)))
 
-
+    # Post actual tweets
     for tweet in reversed(not_mirrored):
-        tweet = html.unescape(tweet)
         twitter.PostUpdate(tweet)
         print("Tweeting: {}".format(tweet))
 
-    sleep(config.interval_minutes * 60)
+    # Sleep and show next update timer
+    sleep_seconds = config.interval_minutes * 60
+    for i in range(sleep_seconds):
+        print("\rUpdate in {:4} seconds.".format(sleep_seconds - i), end="\r")
+        sleep(1)
+

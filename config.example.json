@@ -1,5 +1,6 @@
 {
-    "extra_tags": 1,
+    "interval_minutes": 10,
+    "tags_to_append": 2,
     "mastodon": {
         "api_base_url": "https://mstdn.io",
         "user_base_url": "mstdn.io/@bitkeks/",
