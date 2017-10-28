@@ -163,7 +163,7 @@ while 1:
             print("Error posting tweet: '{tweet}' (length {length}). {error}"\
                 .format(tweet=tweet, length=len(tweet), error=ex))
             exit(1)
-        print("Tweeting: {}".format(tweet))
+        print("Tweeting: {}".format(tweet).encode('utf-8'))
 
     # Sleep and show next update timer
     sleep_seconds = config.interval_minutes * 60
