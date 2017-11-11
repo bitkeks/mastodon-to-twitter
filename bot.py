@@ -34,7 +34,7 @@ config = None
 with open('config.json', 'r') as fh:
     config = json.loads(fh.read(),
         object_hook=lambda d: namedtuple('config', d.keys())(*d.values()))
-TWITTER_CHARS = 140
+TWITTER_CHARS = 280
 
 mastodon = Mastodon(
     client_id = config.mastodon.client_key,
