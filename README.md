@@ -1,7 +1,9 @@
-# Mastodon-to-Twitter Mirrorbot
+# Mas2Bird - the Mastodon-to-Twitter Mirrorbot
 
 This Python3 script loads the latest Toots from your Mastodon account and tweets them on Twitter.
-Some formatting is done to keep the content of Tweets in 140 characters (might be expanded when Twitter rolls out 280 chars for everyone).
+Some formatting is done to keep the content of Tweets in 280 characters.
+
+Currently, the Toot is appended as a link so others can click through to your Mastodon profile. In the future an alternative plain text mirror is planned. The config parameter `link_to_mastodon` is reserved for this.
 
 Your Tweets will contain some of your original Hashtags. Set the config option `tags_to_append` for this.
 

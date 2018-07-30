@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-Mastodon 2.0 to Twitter Mirrorbot
-Copyright 2017 by Dominik Pataky <dom@netdecorator.org>
+Mas2bird - the Mastodon 2.0 to Twitter Mirrorbot
+
+Copyright 2017, 2018 by Dominik Pataky <dev@bitkeks.eu>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -143,7 +144,7 @@ while 1:
 
     not_mirrored = []
     for toot_id, toot in latest_toots:
-        if toot_id == latest_tweeted_toot:
+        if toot_id == int(latest_tweeted_toot):
             print("Found anchor at toot {}.".format(toot_id))
             break
         else:

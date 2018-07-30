@@ -1,4 +1,5 @@
 {
+    "link_to_mastodon": true,
     "interval_minutes": 10,
     "tags_to_append": 2,
     "mastodon": {
