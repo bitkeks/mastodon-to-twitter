@@ -27,6 +27,7 @@ import re
 from collections import namedtuple
 from time import sleep
 
+from bs4 import BeautifulSoup
 from mastodon import Mastodon
 import twitter as Twitter
 
@@ -58,6 +59,11 @@ mastodon_account_id = creds["id"]
 twitter_user = twitter.VerifyCredentials()
 twitter_id = twitter_user.id
 
+if not os.path.exists('.sync_cache'):
+    print("You don't have a cache file!")
+    with open('.sync_cache', 'r') as fh:
+        fh.write()
+
 while 1:
     toots = mastodon.account_statuses(mastodon_account_id)
 
@@ -68,28 +74,15 @@ while 1:
                 toot['reblog']):                    # Skip reblogs/boosts
             continue
 
-        content = toot['content']
-
-        # Filter out all URLs in the Toot since they break the Twitter char
-        # limit unpredictably
-        collected_external_links = []
-        m = re.finditer('href="(https?\:\/\/[^"]*)"', content)
-        for match in m:
-            link = match.group(1)
-            if "/tags/" in link:
-                continue
-            collected_external_links.append(link)
-
-        # Strip all HTML tags from content
-        content = re.sub('<[^<]+?>', '', toot['content'])
-
         # Unescape HTML entities in content
         # This means, that e.g. a Toot "Hi, I'm a bot" is escaped as
         # "Hi, I&apos;m a bot". Unescaping this text reconstructs the
         # original string "I'm"
-        content = html.unescape(content)
-        for link in collected_external_links:
-            content = content.replace(link, "")
+        content = html.unescape(toot['content'])
+
+        # Pass the resulting HTML to BeautifulSoup and extract all text
+        content = BeautifulSoup(content, 'html.parser')
+        content = content.get_text()
 
         # Fetch the toot URL
         url = "{}".format(toot['url'][8:])
@@ -105,62 +98,58 @@ while 1:
                 break
 
         # Build the tweet
-        if len(content) + len(url) <= TWITTER_CHARS:
-            # Content + URL are fitting in one Tweet
-            tweet = "{content} {url}".format(content=content, url=url)
-        else:
-            # Calculate snipped of content plus all other text parts
-            tweet = content[:TWITTER_CHARS - len(tag) - len(url) - 3]
-            if tweet.endswith(" "):
+        if config.link_to_mastodon:
+            # Append a link back to the Toot
+            if len(content) + len(url) <= TWITTER_CHARS:
+                # Content + URL are fitting in one Tweet
+                tweet = "{content} {url}".format(content=content, url=url)
+            else:
+                # Calculate snipped of content plus all other text parts
+                tweet = content[:TWITTER_CHARS - len(tag) - len(url) - 3]
                 # Remove spaces between last word and "…"
                 tweet = tweet.strip()
-            tweet += "… {tag} {url}".format(tag=tag, url=url)
+                tweet += "… {tag} {url}".format(tag=tag, url=url)
+        else:
+            # Don't link back to Mastodon
+            banner = " (via Mas2Bird)"
+            if len(content) + len(banner) > TWITTER_CHARS:
+                content = content[:TWITTER_CHARS - len(banner) - 3]
+                content = content.strip() + "…"
+            tweet = "{content} {banner}".format(content=content, banner=banner)
 
         latest_toots.append((toot['id'], tweet))
 
     tweets = twitter.GetUserTimeline(user_id=twitter_id)
 
-    latest_tweeted_toot = None
-    mstdn_url = config.mastodon.user_base_url
+    with open('.sync_cache', 'r') as fh:
+        cache = fh.read().split(',')
+        latest_synced_toot = int(cache[0])
+        latest_synced_tweet = int(cache[1])
 
-    # Iterate over the latest Tweets to find the latest tweeted Toot
-    # Cannot be the latest only, since we want to skip e.g. Retweets
-    for tweet in tweets:
-        for url in tweet.urls:
-            expanded = url.expanded_url
-
-            prefix_len = 8  # https://
-            if mstdn_url in expanded:
-                # Mastodon URL found in Tweet
-                if expanded.startswith("http://"):
-                    prefix_len = 7
-
-                # int in Mstdn < 2, str in Mstdn => 2
-                latest_tweeted_toot = expanded[prefix_len + len(mstdn_url):]
-
-        if latest_tweeted_toot:
-            # Latest tweeted Toot was found
-            break
-
+    # Find the list slice of not-yet-synced latest Toots
     not_mirrored = []
     for toot_id, toot in latest_toots:
-        if toot_id == int(latest_tweeted_toot):
-            print("Found anchor at toot {}.".format(toot_id))
+        if toot_id == latest_synced_toot:
+            # Found the last synced Toot
             break
         else:
-            not_mirrored.append(toot)
+            # Append to list to be tweeted
+            not_mirrored.append((toot_id, toot))
 
-    # Check if all public Toots are going to be mirrored
-    if len(latest_toots) == len(not_mirrored):
-        print("Did not find a toot-tweet-anchor.")
-    else:
-        # Only a part of the latest public Toots is going to be Tweeted
-        print("Going to tweet {} toots.".format(len(not_mirrored)))
+    print("Going to tweet {} toots.".format(len(not_mirrored)))
 
     # Post actual tweets
     for tweet in reversed(not_mirrored):
         try:
-            twitter.PostUpdate(tweet)
+            # Post single Tweet
+            status = twitter.PostUpdate(tweet[1])
+
+            # Update cache if no exception was thrown
+            with open('.sync_cache', 'w') as fh:
+                fh.write("{toot_id},{tweet_id}".format(
+                    toot_id=tweet[0], tweet_id=status.id
+                ))
+
         except Twitter.error.TwitterError as ex:
             print("Error posting tweet: '{tweet}' (length {length}). {error}"\
                 .format(tweet=tweet, length=len(tweet), error=ex))

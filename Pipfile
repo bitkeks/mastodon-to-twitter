@@ -9,5 +9,6 @@ python_version = "3.5"
 [packages]
 python-twitter = ">=3.3,<4"
 "Mastodon.py" = ">=1.1,<2"
+BeautifulSoup4 = "*"
 
 [dev-packages]

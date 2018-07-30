@@ -3,7 +3,7 @@
 This Python3 script loads the latest Toots from your Mastodon account and tweets them on Twitter.
 Some formatting is done to keep the content of Tweets in 280 characters.
 
-Currently, the Toot is appended as a link so others can click through to your Mastodon profile. In the future an alternative plain text mirror is planned. The config parameter `link_to_mastodon` is reserved for this.
+You can choose to either link to your Toot so others can click through to your Mastodon profile (see screenshot below) or use the alternative plain text mirror. The config parameter `link_to_mastodon` is used for this.
 
 Your Tweets will contain some of your original Hashtags. Set the config option `tags_to_append` for this.
 
