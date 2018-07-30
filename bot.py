@@ -61,7 +61,7 @@ twitter_id = twitter_user.id
 
 if not os.path.exists('.sync_cache'):
     print("You don't have a cache file!")
-    with open('.sync_cache', 'r') as fh:
+    with open('.sync_cache', 'w') as fh:
         fh.write()
 
 while 1:
