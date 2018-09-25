@@ -32,6 +32,9 @@ from mastodon import Mastodon
 import twitter as Twitter
 
 
+if not os.path.exists("config.json"):
+    exit("config.json does not exist")
+
 config = None
 with open('config.json', 'r') as fh:
     config = json.loads(fh.read(),
@@ -59,19 +62,19 @@ mastodon_account_id = creds["id"]
 twitter_user = twitter.VerifyCredentials()
 twitter_id = twitter_user.id
 
-if not os.path.exists('.sync_cache'):
-    print("You don't have a cache file!")
-    with open('.sync_cache', 'w') as fh:
-        fh.write()
+if not os.path.exists('.sync_id'):
+    print("There's no .sync_id file containing your latest synced Toot, creating one")
+    with open('.sync_id', 'w') as fh:
+        fh.write("0")
 
 while 1:
     toots = mastodon.account_statuses(mastodon_account_id)
 
     latest_toots = []
     for toot in toots:
-        if (toot['visibility'] != 'public' or       # Skip non-public Toots
-                len(toot['mentions']) > 0 or        # Skip replies
-                toot['reblog']):                    # Skip reblogs/boosts
+        if (toot['visibility'] not in ['public', 'unlisted'] or     # Skip private Toots
+                len(toot['mentions']) > 0 or                        # Skip replies
+                toot['reblog']):                                    # Skip reblogs/boosts
             continue
 
         # Unescape HTML entities in content
@@ -119,22 +122,18 @@ while 1:
 
         latest_toots.append((toot['id'], tweet))
 
-    tweets = twitter.GetUserTimeline(user_id=twitter_id)
-
-    with open('.sync_cache', 'r') as fh:
-        cache = fh.read().split(',')
-        latest_synced_toot = int(cache[0])
-        latest_synced_tweet = int(cache[1])
+    with open('.sync_id', 'r') as fh:
+        latest_synced_toot = fh.read().strip()
 
     # Find the list slice of not-yet-synced latest Toots
     not_mirrored = []
-    for toot_id, toot in latest_toots:
-        if toot_id == latest_synced_toot:
+    for toot_id, tweet in latest_toots:
+        if str(toot_id) == latest_synced_toot:
             # Found the last synced Toot
             break
         else:
             # Append to list to be tweeted
-            not_mirrored.append((toot_id, toot))
+            not_mirrored.append((toot_id, tweet))
 
     print("Going to tweet {} toots.".format(len(not_mirrored)))
 
@@ -145,10 +144,8 @@ while 1:
             status = twitter.PostUpdate(tweet[1])
 
             # Update cache if no exception was thrown
-            with open('.sync_cache', 'w') as fh:
-                fh.write("{toot_id},{tweet_id}".format(
-                    toot_id=tweet[0], tweet_id=status.id
-                ))
+            with open('.sync_id', 'w') as fh:
+                fh.write("{toot_id}".format(toot_id=tweet[0]))
 
         except Twitter.error.TwitterError as ex:
             print("Error posting tweet: '{tweet}' (length {length}). {error}"\
