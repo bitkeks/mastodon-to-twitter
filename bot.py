@@ -87,6 +87,9 @@ while 1:
         content = BeautifulSoup(content, 'html.parser')
         content = content.get_text()
 
+        # Filter @username@twitter.com mentions
+        content = content.replace("@twitter.com", "")
+
         # Fetch the toot URL
         url = "{}".format(toot['url'][8:])
 
