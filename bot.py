@@ -129,6 +129,7 @@ class StatusReceiver(StreamListener):
                 break
 
         # Build the tweet
+        tweets = []
         if config.link_to_mastodon:
             # Append a link back to the Toot
             if len(content) + len(url) <= TWITTER_CHARS:
@@ -140,16 +141,37 @@ class StatusReceiver(StreamListener):
                 # Remove spaces between last word and "…"
                 tweet = tweet.strip()
                 tweet += "… {tag} {url}".format(tag=tag, url=url)
+            tweets.append(tweet)
         else:
             # Don't link back to Mastodon
             if len(content) > TWITTER_CHARS:
-                content = content[:TWITTER_CHARS - 3]
-                content = content.strip() + "…"
-            tweet = "{content}".format(content=content)
+                # The Toot has more characters than Twitter allows
+
+                # Get the length, calculate the half and split the words
+                length = len(content)
+                middle = length/2
+                tokens = content.split(" ")
+
+                # Mastodon allows 500 characters, Twitter 280: two Tweets are enough
+                first_tweet = ""
+                second_tweet = ""
+                for idx, token in enumerate(tokens):
+                    # Test, if an additional word would exceed the first half
+                    if len("{} {}".format(first_tweet, token)) > middle:
+                        # Construct the second Tweet from the remaining words and stop
+                        second_tweet = " ".join(tokens[idx:])
+                        break
+                    # If it still fits, append the word to the first Tweet
+                    first_tweet = "{} {}".format(first_tweet, token)
+
+                tweets = [first_tweet, second_tweet]
+            else:
+                tweet = "{content}".format(content=content)
+                tweets.append(tweet)
 
         # Tweet
-        logger.info("Tweeting: %s" % tweet)
-        process_tweet(tweet)
+        logger.info("Tweeting: %s" % tweets)
+        process_tweets(tweets)
 
     def on_notification(self, notification):
         logger.info("Received notification, ignored")
@@ -165,16 +187,28 @@ class StatusReceiver(StreamListener):
         mastodon.account_verify_credentials()
 
 
-def process_tweet(tweet):
-    try:
-        # Post single Tweet
-        status = twitter.PostUpdate(tweet)
-    except Twitter.error.TwitterError as ex:
-        log.critical("Error posting tweet: '{tweet}' (length {length}). {error}"\
-            .format(tweet=tweet, length=len(tweet), error=ex))
-        exit(1)
-    logger.debug(status)
-    logger.info("Tweeted: {}".format(tweet.encode('utf-8')))
+def process_tweets(tweets):
+    """Post one or multiple Tweets to twitter.com
+    """
+    # To be used for threads with two or more related Tweets
+    latest_id = None
+
+    for tweet in tweets:
+        try:
+            # Post single Tweet
+            status = twitter.PostUpdate(
+                tweet,
+                in_reply_to_status_id=latest_id,
+                auto_populate_reply_metadata=False
+            )
+            # and save the Tweet ID
+            latest_id = status.id
+        except Twitter.error.TwitterError as ex:
+            log.critical("Error posting tweet: '{tweet}' (length {length}). {error}"\
+                .format(tweet=tweet, length=len(tweet), error=ex))
+            exit(1)
+        logger.debug(status)
+        logger.info("Tweeted: {}".format(tweet.encode('utf-8')))
 
 
 receiver = StatusReceiver(mastodon_account_id)
