@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Mas2bird - the Mastodon 2.0 to Twitter Mirrorbot
+Mas2tter - the Mastodon 2.0 to Twitter Mirrorbot
 
 Copyright 2017, 2018 by Dominik Pataky <dev@bitkeks.eu>
 
@@ -23,18 +23,25 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os
 import html
 import json
+import logging
 import re
 from collections import namedtuple
 from time import sleep
 
 from bs4 import BeautifulSoup
-from mastodon import Mastodon
+from mastodon import Mastodon, StreamListener, MastodonMalformedEventError
 import twitter as Twitter
 
+logger = logging.getLogger("Mas2tter")
+logger.setLevel(logging.DEBUG)
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 if not os.path.exists("config.json"):
     exit("config.json does not exist")
-
 config = None
 with open('config.json', 'r') as fh:
     config = json.loads(fh.read(),
@@ -55,27 +62,45 @@ twitter = Twitter.Api(
     access_token_secret = config.twitter.access_token_secret
 )
 
-
 creds = mastodon.account_verify_credentials()
-mastodon_account_id = creds["id"]
+mastodon_account_id = creds.id
 
 twitter_user = twitter.VerifyCredentials()
 twitter_id = twitter_user.id
 
-if not os.path.exists('.sync_id'):
-    print("There's no .sync_id file containing your latest synced Toot, creating one")
-    with open('.sync_id', 'w') as fh:
-        fh.write("0")
 
-while 1:
-    toots = mastodon.account_statuses(mastodon_account_id)
+class StatusReceiver(StreamListener):
+    """StreamListener child class with handlers for received stream events.
+    """
 
-    latest_toots = []
-    for toot in toots:
-        if (toot['visibility'] not in ['public', 'unlisted'] or     # Skip private Toots
-                len(toot['mentions']) > 0 or                        # Skip replies
-                toot['reblog']):                                    # Skip reblogs/boosts
-            continue
+    def __init__(self, mastodon_account_id):
+        super().__init__()
+        self.mastodon_account_id = mastodon_account_id
+        logger.info("Set mastodon_account_id to %s" % mastodon_account_id)
+        logger.info("StatusReceiver started")
+
+    def on_update(self, toot):
+        # Filter out certain Toots
+
+        # Don't handle Toots from other people
+        if toot.account.id != self.mastodon_account_id:
+            logger.info("Received Toot from other account, ignored")
+            return
+
+        # Skip private Toots
+        if toot.visibility not in ['public', 'unlisted']:
+            logger.info("Own Toot was filtered out due to visibility filter")
+            return
+
+        # Skip replies
+        if toot.in_reply_to_id != None:
+            logger.info("Own Toot was filtered out due to mention/in_reply_to_id filter")
+            return
+
+        # Skip reblogs/boosts
+        if toot.reblog:
+            logger.info("Own Toot was filtered out due to reblog filter")
+            return
 
         # Unescape HTML entities in content
         # This means, that e.g. a Toot "Hi, I'm a bot" is escaped as
@@ -117,48 +142,48 @@ while 1:
                 tweet += "… {tag} {url}".format(tag=tag, url=url)
         else:
             # Don't link back to Mastodon
-            banner = " (via Mas2Bird)"
-            if len(content) + len(banner) > TWITTER_CHARS:
-                content = content[:TWITTER_CHARS - len(banner) - 3]
+            if len(content) > TWITTER_CHARS:
+                content = content[:TWITTER_CHARS - 3]
                 content = content.strip() + "…"
-            tweet = "{content} {banner}".format(content=content, banner=banner)
+            tweet = "{content}".format(content=content)
 
-        latest_toots.append((toot['id'], tweet))
+        # Tweet
+        logger.info("Tweeting: %s" % tweet)
+        process_tweet(tweet)
 
-    with open('.sync_id', 'r') as fh:
-        latest_synced_toot = fh.read().strip()
+    def on_notification(self, notification):
+        logger.info("Received notification, ignored")
 
-    # Find the list slice of not-yet-synced latest Toots
-    not_mirrored = []
-    for toot_id, tweet in latest_toots:
-        if str(toot_id) == latest_synced_toot:
-            # Found the last synced Toot
-            break
-        else:
-            # Append to list to be tweeted
-            not_mirrored.append((toot_id, tweet))
+    def on_abort(self, err):
+        logger.error("on_abort: %s" % err)
 
-    print("Going to tweet {} toots.".format(len(not_mirrored)))
+    def on_delete(self, status_id):
+        logger.info("Received status deletion event for Toot %s, ignored" % status_id)
 
-    # Post actual tweets
-    for tweet in reversed(not_mirrored):
-        try:
-            # Post single Tweet
-            status = twitter.PostUpdate(tweet[1])
+    def handle_heartbeat(self):
+        logger.info("Received heartbeat")
+        mastodon.account_verify_credentials()
 
-            # Update cache if no exception was thrown
-            with open('.sync_id', 'w') as fh:
-                fh.write("{toot_id}".format(toot_id=tweet[0]))
 
-        except Twitter.error.TwitterError as ex:
-            print("Error posting tweet: '{tweet}' (length {length}). {error}"\
-                .format(tweet=tweet, length=len(tweet), error=ex))
-            exit(1)
-        print("Tweeting: {}".format(tweet).encode('utf-8'))
+def process_tweet(tweet):
+    try:
+        # Post single Tweet
+        status = twitter.PostUpdate(tweet)
+    except Twitter.error.TwitterError as ex:
+        log.critical("Error posting tweet: '{tweet}' (length {length}). {error}"\
+            .format(tweet=tweet, length=len(tweet), error=ex))
+        exit(1)
+    logger.debug(status)
+    logger.info("Tweeted: {}".format(tweet.encode('utf-8')))
 
-    # Sleep and show next update timer
-    sleep_seconds = config.interval_minutes * 60
-    for i in range(sleep_seconds):
-        print("\rUpdate in {:4} seconds.".format(sleep_seconds - i), end="\r")
-        sleep(1)
+
+receiver = StatusReceiver(mastodon_account_id)
+
+while 1:
+    # Handle exceptions thrown by the StreamListener
+    try:
+        # Run listener
+        mastodon.stream_user(receiver, run_async=False)
+    except MastodonMalformedEventError as ex:
+        logger.error("Catched MastodonMalformedEventError!")
 
