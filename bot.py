@@ -137,7 +137,7 @@ class StatusReceiver(StreamListener):
                 tweet = "{content} {url}".format(content=content, url=url)
             else:
                 # Calculate snipped of content plus all other text parts
-                tweet = content[:TWITTER_CHARS - len(tag) - len(url) - 3]
+                tweet = content[:TWITTER_CHARS - len(tag) - len(url) - 4]
                 # Remove spaces between last word and "…"
                 tweet = tweet.strip()
                 tweet += "… {tag} {url}".format(tag=tag, url=url)
@@ -204,7 +204,7 @@ def process_tweets(tweets):
             # and save the Tweet ID
             latest_id = status.id
         except Twitter.error.TwitterError as ex:
-            log.critical("Error posting tweet: '{tweet}' (length {length}). {error}"\
+            logger.critical("Error posting tweet: '{tweet}' (length {length}). {error}"\
                 .format(tweet=tweet, length=len(tweet), error=ex))
             exit(1)
         logger.debug(status)

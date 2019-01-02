@@ -1,6 +1,5 @@
 {
-    "link_to_mastodon": true,
-    "interval_minutes": 10,
+    "link_to_mastodon": false,
     "tags_to_append": 2,
     "mastodon": {
         "api_base_url": "https://mstdn.io",

@@ -151,11 +151,11 @@ for tweet in reversed(not_mirrored):
     try:
         pass
         # Post single Tweet
-        # ~ status = twitter.PostUpdate(tweet[1])
+        status = twitter.PostUpdate(tweet[1])
 
         # Update cache if no exception was thrown
-        # ~ with open('.sync_id', 'w') as fh:
-            # ~ fh.write("{toot_id}".format(toot_id=tweet[0]))
+        with open('.sync_id', 'w') as fh:
+            fh.write("{toot_id}".format(toot_id=tweet[0]))
 
     except Twitter.error.TwitterError as ex:
         print("Error posting tweet: '{tweet}' (length {length}). {error}"\
