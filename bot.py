@@ -20,34 +20,48 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
+import argparse
+from collections import namedtuple
 import html
 import json
 import logging
-import re
-from collections import namedtuple
+import os.path
 from time import sleep
 
 from bs4 import BeautifulSoup
-from mastodon import Mastodon, StreamListener, MastodonMalformedEventError
+from mastodon import Mastodon, StreamListener, MastodonMalformedEventError, MastodonNetworkError
 import twitter as Twitter
 
+
+# Get CLI argments and parse them
+parser = argparse.ArgumentParser(description="Mas2tter, the Mastodon-to-Twitter bot")
+parser.add_argument("--config", dest="config", metavar="<JSON file>", default="config.json", type=str, help="JSON file to use as config")
+parser.add_argument("--debug", "-d", dest="debug", action="store_true", help="enable debugging output")
+args = parser.parse_args()
+
+# Configure logging
 logger = logging.getLogger("Mas2tter")
 logger.setLevel(logging.DEBUG)
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
+if args.debug:
+    ch.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
-if not os.path.exists("config.json"):
-    exit("config.json does not exist")
+# Read config from JSON file
+if not os.path.exists(args.config):
+    exit("{} does not exist".format(args.config))
 config = None
-with open('config.json', 'r') as fh:
+with open(args.config, "r") as fh:
     config = json.loads(fh.read(),
-        object_hook=lambda d: namedtuple('config', d.keys())(*d.values()))
+        object_hook=lambda d: namedtuple("config", d.keys())(*d.values()))
+
+# Set Twitter maximum characters
 TWITTER_CHARS = 280
 
+# Set up Mastodon API client
 mastodon = Mastodon(
     client_id = config.mastodon.client_key,
     client_secret = config.mastodon.client_secret,
@@ -55,6 +69,7 @@ mastodon = Mastodon(
     api_base_url = config.mastodon.api_base_url
 )
 
+# Set up Twitter API client
 twitter = Twitter.Api(
     consumer_key = config.twitter.consumer_key,
     consumer_secret = config.twitter.consumer_secret,
@@ -62,28 +77,24 @@ twitter = Twitter.Api(
     access_token_secret = config.twitter.access_token_secret
 )
 
-creds = mastodon.account_verify_credentials()
-mastodon_account_id = creds.id
-
+# Connect to Mastodon and Twitter with credentials
+# (also useful for checking the connection)
+mastodon_user = mastodon.account_verify_credentials()
 twitter_user = twitter.VerifyCredentials()
-twitter_id = twitter_user.id
 
 
 class StatusReceiver(StreamListener):
     """StreamListener child class with handlers for received stream events.
     """
-
-    def __init__(self, mastodon_account_id):
+    def __init__(self):
         super().__init__()
-        self.mastodon_account_id = mastodon_account_id
-        logger.info("Set mastodon_account_id to %s" % mastodon_account_id)
-        logger.info("StatusReceiver started")
+        logger.info("StatusReceiver for %s initialised" % mastodon_user.url)
 
     def on_update(self, toot):
         # Filter out certain Toots
 
         # Don't handle Toots from other people
-        if toot.account.id != self.mastodon_account_id:
+        if toot.account.id != mastodon_user.id and toot.account.username != mastodon_user.username:
             logger.info("Received Toot from other account, ignored")
             return
 
@@ -184,7 +195,6 @@ class StatusReceiver(StreamListener):
 
     def handle_heartbeat(self):
         logger.info("Received heartbeat")
-        mastodon.account_verify_credentials()
 
 
 def process_tweets(tweets):
@@ -204,6 +214,7 @@ def process_tweets(tweets):
             # and save the Tweet ID
             latest_id = status.id
         except Twitter.error.TwitterError as ex:
+            # Something went wrong while posting to Twitter, abort program
             logger.critical("Error posting tweet: '{tweet}' (length {length}). {error}"\
                 .format(tweet=tweet, length=len(tweet), error=ex))
             exit(1)
@@ -211,13 +222,17 @@ def process_tweets(tweets):
         logger.info("Tweeted: {}".format(tweet.encode('utf-8')))
 
 
-receiver = StatusReceiver(mastodon_account_id)
-
+# Handle exceptions thrown by the StreamListener
+# and restart StatusReceiver if an exception occurred
 while 1:
-    # Handle exceptions thrown by the StreamListener
     try:
-        # Run listener
+        logger.debug("Creating new StatusReceiver instance")
+        receiver = StatusReceiver()
+        logger.debug("Starting stream_user with StatusReceiver")
         mastodon.stream_user(receiver, run_async=False)
     except MastodonMalformedEventError as ex:
-        logger.error("Catched MastodonMalformedEventError!")
-
+        logger.error("Catched MastodonMalformedEventError: %s" % ex)
+    except MastodonNetworkError as ex:
+        logger.error("Catched MastodonNetworkError: %s" % ex)
+    except Exception as ex:
+        logger.error("Catched unknown Exception: %s" % ex)
