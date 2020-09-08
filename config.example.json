@@ -1,6 +1,7 @@
 {
     "link_to_mastodon": false,
     "tags_to_append": 2,
+    "post_media": true,
     "mastodon": {
         "api_base_url": "https://mstdn.io",
         "user_base_url": "mstdn.io/@bitkeks/",

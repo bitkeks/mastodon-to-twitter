@@ -27,6 +27,8 @@ import json
 import logging
 import os.path
 from time import sleep
+import urllib
+import tempfile
 
 from bs4 import BeautifulSoup
 from mastodon import Mastodon, StreamListener, MastodonMalformedEventError, MastodonNetworkError
@@ -113,6 +115,10 @@ class StatusReceiver(StreamListener):
             logger.info("Own Toot was filtered out due to reblog filter")
             return
 
+        # Temporary dir to place media when processing multimedia toots
+        # the tempdir is only created when handling a multimedia toot
+        media_tmp_dir = None
+
         # Unescape HTML entities in content
         # This means, that e.g. a Toot "Hi, I'm a bot" is escaped as
         # "Hi, I&apos;m a bot". Unescaping this text reconstructs the
@@ -138,6 +144,22 @@ class StatusReceiver(StreamListener):
             tag += " #{}".format(new_tag)
             if idx+1 == config.tags_to_append:
                 break
+
+        # Process the images in media_attachments (if any)
+        tweet_media = []
+        if config.post_media:
+            media_tmp_dir = tempfile.TemporaryDirectory()
+            media_attachments = toot.media_attachments
+            for media_file in media_attachments:
+                media_id = media_file['id']
+                media_type = media_file['type']
+                media_url = media_file['url']
+                media_content = urllib.request.urlopen(media_url)
+                media_filename = "{0}/{1}.jpg".format(media_tmp_dir.name, media_id)
+                if media_type == 'image':
+                    with open(media_filename, 'wb') as f:
+                        f.write(media_content.read())
+                    tweet_media.append(media_filename)
 
         # Build the tweet
         tweets = []
@@ -182,7 +204,11 @@ class StatusReceiver(StreamListener):
 
         # Tweet
         logger.info("Tweeting: %s" % tweets)
-        process_tweets(tweets)
+        process_tweets(tweets, tweet_media)
+
+        # cleanup multimedia tempdir (if exists)
+        if media_tmp_dir:
+            media_tmp_dir.cleanup()
 
     def on_notification(self, notification):
         logger.info("Received notification, ignored")
@@ -197,7 +223,7 @@ class StatusReceiver(StreamListener):
         logger.info("Received heartbeat")
 
 
-def process_tweets(tweets):
+def process_tweets(tweets, tweet_media):
     """Post one or multiple Tweets to twitter.com
     """
     # To be used for threads with two or more related Tweets
@@ -209,10 +235,13 @@ def process_tweets(tweets):
             status = twitter.PostUpdate(
                 tweet,
                 in_reply_to_status_id=latest_id,
-                auto_populate_reply_metadata=False
+                auto_populate_reply_metadata=False,
+                media=tweet_media
             )
             # and save the Tweet ID
             latest_id = status.id
+            # only the first Tweet contains the images from original toot
+            tweet_media = ""
         except Twitter.error.TwitterError as ex:
             # Something went wrong while posting to Twitter, abort program
             logger.critical("Error posting tweet: '{tweet}' (length {length}). {error}"\
